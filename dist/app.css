@@ -1,0 +1,105 @@
+* {
+  padding: 0;
+  margin: 0;
+}
+.container {
+  padding-left: 0;
+  padding-right: 0;
+  margin-bottom: 0;
+}
+@media (min-width: 0px) {
+  .show-contents {
+    font-size: 16px;
+  }
+  .ArticleList {
+    font-size: 20px;
+  }
+}
+@media (min-width: 600px) {
+  .show-contents {
+    font-size: 17px;
+  }
+  .ArticleList {
+    font-size: 22px;
+  }
+}
+@media (min-width: 1200px) {
+  .show-contents {
+    font-size: 18px;
+  }
+  .ArticleList {
+    font-size: 24px;
+  }
+}
+ul {
+  list-style-type: none;
+}
+.f-row {
+  margin-left: auto;
+  margin-right: auto;
+  zoom: 1;
+}
+@media screen and (min-width: 1000px) {
+  .f-row {
+    max-width: 1200px;
+    min-width: 1000px;
+  }
+}
+.Banner {
+  width: 100%;
+  color: #fff;
+  padding: 4% 0;
+}
+.Banner a {
+  color: #fff6de;
+  text-decoration: none;
+}
+.Banner a h1 {
+  margin: 0;
+  padding: 4%;
+  font-size: 3.5em;
+}
+.ArticleList {
+  margin-bottom: 50px;
+}
+.ArticleList .ArticleUl {
+  background-color: #f6f6f6;
+  padding: 4%;
+}
+.ArticleList .ArticleUl li a {
+  color: #808080;
+  text-decoration: none;
+}
+.ArticleList .ArticleUl li a .time {
+  padding-right: 20px;
+}
+.BackImage {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  z-index: -1;
+}
+.ArticleContent .Aricle {
+  background-color: #f6f6f6;
+  margin-bottom: 50px;
+  color: #3f3f3f;
+}
+.ArticleContent .Aricle .loading {
+  padding: 15px 0;
+  text-align: center;
+}
+@media (min-width: 0px) {
+  .ArticleContent .Aricle {
+    padding: 20px 4%;
+  }
+}
+@media (min-width: 600px) {
+  .ArticleContent .Aricle {
+    padding: 40px 7%;
+  }
+}
+@media (min-width: 1200px) {
+  .ArticleContent .Aricle {
+    padding: 60px 10%;
+  }
+}

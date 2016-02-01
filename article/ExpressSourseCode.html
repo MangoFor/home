@@ -1,0 +1,295 @@
+﻿<h2 id="express深入解剖">Express深入解剖</h2>
+
+<hr>
+
+<p>因为最近使用express时明显感觉很多使用细节还是性能优化方面，文档都没有很好的回答到，所以决定翻一翻源码</p>
+
+<p>Express的功能大致如下 <br>
+1.  路由解析 <br>
+2.  给request和response添加功能更强大的方法 <br>
+3.  模板引擎</p>
+
+<p>express的核心特性就是实现路由系统，实现对各路径的业务代码解耦。</p>
+
+<hr>
+
+
+
+<h4 id="一-路由解析">一.  路由解析</h4>
+
+<p>原本的野生nodejs http请求可能会如下</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-keyword">var</span> http = <span class="hljs-built_in">require</span>(<span class="hljs-string">'http'</span>);
+ <span class="hljs-keyword">var</span> server=http.createServer(<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req,res)</span>{</span>
+     <span class="hljs-keyword">if</span>(req.url == <span class="hljs-string">'/'</span>){
+         res.end(<span class="hljs-string">'&lt;h1&gt;index&lt;/h1&gt;'</span>);
+     }
+     <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span>(req.url == <span class="hljs-string">'/user'</span>){
+         res.end(<span class="hljs-string">'&lt;h1&gt;user&lt;/h1&gt;'</span>);
+     }<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span>(req.url == <span class="hljs-string">'info'</span>){
+         res.end(<span class="hljs-string">'&lt;h1&gt;info&lt;/h1&gt;'</span>);
+     }
+ });
+ server.listen(<span class="hljs-number">8000</span>);</code></pre>
+
+<p>只有一个简陋的回调函数及其req,res，难道真的要用if else去判断所有的url，把所有的业务逻辑全写在里面？</p>
+
+<p>并不是，我相信各位会有更好的解决方案。</p>
+
+<p>而express也给出了一个不错的解决方案 <br>
+代码大概如下</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-keyword">var</span> home = <span class="hljs-built_in">require</span>(<span class="hljs-string">'./routes/home);
+
+app.use('</span>/user<span class="hljs-string">', function(req,res,next){
+    .....
+});
+app.use('</span>/info, <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req,res,next)</span>{</span>
+    .....
+});
+app.use(<span class="hljs-string">'/home, home);
+
+// catch 404 and forward to error handler
+app.use(function(req, res, next) {
+    var err = new Error('</span>Not Found<span class="hljs-string">');
+    err.status = 404;
+    next(err);
+});</span></code></pre>
+
+<p><strong>./router/home</strong></p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-keyword">var</span> express = <span class="hljs-built_in">require</span>(<span class="hljs-string">'express'</span>);
+<span class="hljs-keyword">var</span> router = express.Router();
+
+<span class="hljs-comment">/* GET home page. */</span>
+router.get(<span class="hljs-string">'/info'</span>, <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req, res)</span> {</span>
+  res.render(‘info’, { title: <span class="hljs-string">'Express'</span> });
+});
+router.get(<span class="hljs-string">'/info'</span>, <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req, res)</span> {</span>
+  res.render(‘bar’, { title: <span class="hljs-string">'Express'</span> });
+});
+module.exports = router;</code></pre>
+
+<p>就像代码所示，express可以通过use，或get之类的方法把不同的请求路径本开处理 <br>
+而整个过程就像一个流水线一样，除非匹配路径返回请求，否则一直走下去，直至最后的错误处理。</p>
+
+<p>流程大概如图 <br>
+<img src="/public/home/images/express01.png" alt="express01" title=""></p>
+
+<p>源码解析 <br>
+Express内部，router被封装成了一个对象，他的本质就是在内部使用一个stack数组来存储每一个Layer对象，通过了数组顺序遍历来匹配路径（怎么是这么low的方法，无语了。。）</p>
+
+<p>Stack存放的是layer对象，layer封装了处理函数，匹配的路径，还有各种参数。</p>
+
+<p>每一个express对象都会在内部new出一个router对象 <br>
+代码如下</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-keyword">this</span>._router = <span class="hljs-keyword">new</span> Router({
+  caseSensitive: <span class="hljs-keyword">this</span>.enabled(<span class="hljs-string">'case sensitive routing'</span>),
+  strict: <span class="hljs-keyword">this</span>.enabled(<span class="hljs-string">'strict routing'</span>)
+});</code></pre>
+
+<p>Router对象  <br>
+这是它的构造函数(简化)</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-keyword">var</span> proto = <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(options)</span> {</span>
+  options = options || {};
+
+  <span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">router</span><span class="hljs-params">(req, res, next)</span> {</span>
+    router.handle(req, res, next);
+  }
+
+  router.__proto__ = proto;
+  router.stack = [];    <span class="hljs-comment">//用于存放 每一个layer的数组</span>
+
+  <span class="hljs-keyword">return</span> router;
+};</code></pre>
+
+<p>Layer构造函数</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">Layer</span><span class="hljs-params">(path, options, fn)</span> {</span>
+  options = options || {};
+
+  <span class="hljs-keyword">this</span>.handle = fn;
+  <span class="hljs-keyword">this</span>.regexp = pathRegexp(path, <span class="hljs-keyword">this</span>.keys = [], options);
+}</code></pre>
+
+<p>它把path用pathRegexp转化为一个正则表达式，用于匹配每一个到来的请求。handle则是存放处理函数</p>
+
+<p>router的use方法(简化)</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs ">proto.use = <span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">use</span><span class="hljs-params">(fn)</span> {</span>
+
+    ······
+
+  <span class="hljs-comment">//callback存放着所有的回调函数</span>
+  callbacks.forEach(<span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-params">(fn)</span> {</span>
+    <span class="hljs-keyword">var</span> layer = <span class="hljs-keyword">new</span> Layer(path, {
+      sensitive: self.caseSensitive,
+      strict: <span class="hljs-literal">false</span>,
+      end: <span class="hljs-literal">false</span>
+    }, fn);
+
+    layer.route = <span class="hljs-literal">undefined</span>;
+    self.stack.push(layer);
+  });
+
+  <span class="hljs-keyword">return</span> <span class="hljs-keyword">this</span>;
+};</code></pre>
+
+<p>该方法用于给stack中添加layer对象，</p>
+
+<p>Handle方法（简化）</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs ">proto.handle = <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req, res, done)</span> {</span>
+    <span class="hljs-keyword">var</span> self = <span class="hljs-keyword">this</span>;
+
+    <span class="hljs-keyword">var</span> stack = self.stack;
+    <span class="hljs-keyword">var</span> idx=<span class="hljs-number">0</span>;
+    <span class="hljs-comment">//递归函数，只有调用了next之后才能进入下一个路由</span>
+    next();
+    <span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">next</span><span class="hljs-params">(err)</span> {</span>
+        <span class="hljs-keyword">var</span> layerError = err;
+        <span class="hljs-comment">//取出一个layer</span>
+        <span class="hljs-keyword">var</span> layer = stack[idx++];
+        <span class="hljs-comment">//如果没有了就退出</span>
+        <span class="hljs-keyword">if</span>(!layer) {
+            <span class="hljs-keyword">return</span> done();
+        }
+        <span class="hljs-comment">//匹配完成后就进行</span>
+        self.match_layer(layer,req,res,<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(err,path)</span> {</span>
+            <span class="hljs-keyword">if</span>(err || path === <span class="hljs-literal">undefined</span>){
+                <span class="hljs-keyword">return</span> next(layerError || err);
+            }
+            layer.handle_request(req, res, next);
+        });
+    }
+}</code></pre>
+
+<p>这是最核心的方法，有请求到来之后触发这个函数，内部实现顺序匹配的方式就是使用next递归函数，每次调用next之后都会取出下一个layer出来处理，所以可以把next放到我们的处理函数中，在每一个路由处理节点上就可以决定是否要调用next。（为啥要递归+_+）</p>
+
+<p>还有一个细节，use方法和METHOD（eg:get post head），all,还是有点区别的，use只是匹配前缀就行，而METHOD和all是要保证路径全匹配的。 <br>
+所以，对于use来说，路径’/’就表示可以匹配任何路径（因为所有路径的前缀都会是’/’），这就意味着我们可以使用use来对请求进行预处理，例如cookie，session的解析</p>
+
+<p>例如</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs ">app.use(<span class="hljs-string">'/user'</span>,<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req,res,next)</span>{</span>
+    <span class="hljs-comment">//能匹配到/user或/user/info</span>
+})
+
+app.all(<span class="hljs-string">'/user'</span>,<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(req,res,next)</span>{</span>
+    <span class="hljs-comment">//只能匹配/user</span>
+    <span class="hljs-comment">//不能匹配/user/info</span>
+})</code></pre>
+
+<p>而METHOD的实现和all一样，只不过它还限制了请求类型.</p>
+
+<p>其实all和METHOD不是简单的使用layer匹配，还使用了route(注意和router不一样), route和之前的router类似，不过route内部只进行请求方法的判断，不判断路径，METHOD方法会先在router的layer匹配完路径之后再到layer.route中匹配请求方法. <br>
+流程图如下</p>
+
+<img src="/public/home/images/express02.png" alt="express01" title=""></p>
+
+<p>代码如下 <br>
+router中的methods</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs ">proto.route = <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(path)</span>{</span>
+  <span class="hljs-keyword">var</span> route = <span class="hljs-keyword">new</span> Route(path);
+
+  <span class="hljs-keyword">var</span> layer = <span class="hljs-keyword">new</span> Layer(path, {
+    sensitive: <span class="hljs-keyword">this</span>.caseSensitive,
+    strict: <span class="hljs-keyword">this</span>.strict,
+    end: <span class="hljs-literal">true</span>   <span class="hljs-comment">//不同于router里的，这里是true，表示全匹配</span>
+  }, route.dispatch.bind(route));
+
+  layer.route = route;
+
+  <span class="hljs-keyword">this</span>.stack.push(layer);
+  <span class="hljs-keyword">return</span> route;
+};
+<span class="hljs-comment">// create Router#VERB functions</span>
+methods.concat(<span class="hljs-string">'all'</span>).forEach(<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(method)</span>{</span>
+  proto[method] = <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(path)</span>{</span>
+    <span class="hljs-keyword">var</span> route = <span class="hljs-keyword">this</span>.route(path)
+    route[method].apply(route , slice.call(<span class="hljs-built_in">arguments</span>, <span class="hljs-number">1</span>));
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">this</span>;
+  };
+});</code></pre>
+
+<p>//route中的method</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs ">methods.forEach(<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(method)</span>{</span>
+    Route.prototype[method]=<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">()</span> {</span>
+        <span class="hljs-keyword">var</span> self = <span class="hljs-keyword">this</span>;
+        <span class="hljs-keyword">var</span> callbacks = flatten(<span class="hljs-built_in">arguments</span>);
+        callbacks.forEach(<span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(fn)</span>{</span>
+            layer = <span class="hljs-keyword">new</span> Layer(<span class="hljs-string">'/'</span>,fn);
+            layer.method = method;
+            self.methods[method] = <span class="hljs-literal">true</span>;
+            self.stack.push(layer);
+        });
+
+    }
+})</code></pre>
+
+<p>所以每次调用完一个METHOD之后，都会直接创建一个route，放入layer中，并把layer投放进当前app的_router中，如果在路径被匹配成功，就会进入layer.route的路由，进行请求类型匹配。</p>
+
+<hr>
+
+
+
+<h4 id="二-给reqres添加新方法">二.  给req，res添加新方法</h4>
+
+<p>req和res都是http模块中的野生类，所以如果要添加新的方法，最好的形式莫过于继承。 <br>
+Express中就是把对req，res添加继承的函数作为一个中间件用use放进去，所以每一个请求到来之后首先都会走到里面</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs ">exports.init = <span class="hljs-function"><span class="hljs-keyword">function</span><span class="hljs-params">(app)</span>{</span>
+  <span class="hljs-keyword">return</span> <span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">expressInit</span><span class="hljs-params">(req, res, next)</span>{</span>
+    req.res = res;
+    res.req = req;
+    req.next = next;
+
+    req.__proto__ = app.request;
+    res.__proto__ = app.response;
+
+    next();
+  };
+};</code></pre>
+
+<p>//添加中间件</p>
+
+
+
+<pre class="prettyprint"><code class="language-javascript hljs "><span class="hljs-keyword">this</span>._router.use(middleware.init(<span class="hljs-keyword">this</span>));</code></pre>
+
+
+
+<h4 id="三-总结">三.  总结</h4>
+
+<p>个人觉得express还是有不少优化空间的，比如说路径匹配的方式，是否就一定得循环遍历(o(n))？可否用map映射(o(log n))？ 可否用非递归来方式来实现next函数？</p>
+
+<p>但不可置疑的是Express是当前node最火的框架，社区也提供了很多现成的中间键，我相信随着javascript的发展，express提供更多牛的服务器特性。</p>
+<div id="disqus_thread"></div>
